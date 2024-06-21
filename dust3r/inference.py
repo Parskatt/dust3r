@@ -46,9 +46,8 @@ def loss_of_one_batch(batch, model, criterion, device, symmetrize_batch=False, u
         with torch.cuda.amp.autocast(enabled=False):
             loss = criterion(view_ref, views_source, pred_ref, preds_source) if criterion is not None else None
 
-    result = dict(view1=view1, view2=view2, pred1=pred1, pred2=pred2, loss=loss)
+    result = dict(view_ref=view_ref, views_source=views_source, pred_ref=pred_ref, preds_source=preds_source, loss=loss)
     return result[ret] if ret else result
-
 
 @torch.no_grad()
 def inference(pairs, model, device, batch_size=8, verbose=True):

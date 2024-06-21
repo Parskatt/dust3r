@@ -181,7 +181,11 @@ class AsymmetricCroCo3DStereo (
         # normalize last output
         del final_output[1]  # duplicate with final_output[0]
         final_output[-1] = (self.dec_norm(f_ref), [self.dec_norm(f_source) for f_source in fs_source])
-        return zip(*final_output)
+        dec_ref = [o[0] for o in final_output]
+        decs_source = []
+        for v in range(len(final_output[0][1])):
+            decs_source.append([o[1][v] for o in final_output])
+        return dec_ref, decs_source
 
     def _downstream_head(self, head_num, decout, img_shape):
         B, S, D = decout[-1].shape
@@ -198,7 +202,7 @@ class AsymmetricCroCo3DStereo (
 
         with torch.cuda.amp.autocast(enabled=False):
             res_ref = self._downstream_head(1, [tok.float() for tok in dec_ref], shape_ref)
-            ress_source = [self._downstream_head(2, [tok.float() for tok in dec_source], shape_source) for dec_source, shape_source in zip(decs_source, shapes_source)]
+            ress_source = [self._downstream_head(2, [tok.float() for tok in decs_source[i]], shapes_source[i]) for i in range(len(decs_source))]
 
         for res_source in ress_source:
             res_source['pts3d_in_other_view'] = res_source.pop('pts3d')  # predict view2's pts3d in view1's frame
