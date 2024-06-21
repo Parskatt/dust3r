@@ -19,7 +19,7 @@ from scipy.spatial.transform import Rotation
 
 from dust3r.inference import inference
 from dust3r.model import AsymmetricCroCo3DStereo
-from dust3r.image_pairs import make_pairs
+from dust3r.image_pairs import make_pairs, make_triplets
 from dust3r.utils.image import load_images, rgb
 from dust3r.utils.device import to_numpy
 from dust3r.viz import add_scene_cam, CAM_COLORS, OPENGL, pts3d_to_trimesh, cat_meshes
@@ -140,8 +140,8 @@ def get_reconstructed_scene(outdir, model, device, silent, image_size, filelist,
     elif scenegraph_type == "oneref":
         scenegraph_type = scenegraph_type + "-" + str(refid)
 
-    pairs = make_pairs(imgs, scene_graph=scenegraph_type, prefilter=None, symmetrize=True)
-    output = inference(pairs, model, device, batch_size=batch_size, verbose=not silent)
+    triplets = make_triplets(imgs, scene_graph=scenegraph_type, prefilter=None, symmetrize=True)
+    output = inference(triplets, model, device, batch_size=batch_size, verbose=not silent)
 
     mode = GlobalAlignerMode.PointCloudOptimizer if len(imgs) > 2 else GlobalAlignerMode.PairViewer
     scene = global_aligner(output, device=device, mode=mode, verbose=not silent)
@@ -292,7 +292,7 @@ if __name__ == '__main__':
     else:
         weights_path = "naver/" + args.model_name
     model = AsymmetricCroCo3DStereo.from_pretrained(weights_path).to(args.device)
-
+    #model = AsymmetricCroCo3DStereo(head_type='dpt')
     # dust3r will write the 3D model inside tmpdirname
     with tempfile.TemporaryDirectory(suffix='dust3r_gradio_demo') as tmpdirname:
         if not args.silent:

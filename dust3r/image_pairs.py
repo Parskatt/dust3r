@@ -8,6 +8,20 @@ import numpy as np
 import torch
 
 
+def make_triplets(imgs, scene_graph='complete', prefilter=None, symmetrize=True):
+    triplets = []
+    for i in range(len(imgs)):
+        for j in range(len(imgs)):
+            if j == i:
+                continue
+            for k in range(j+1, len(imgs)):
+                if k == i:
+                    continue
+                triplets.append((imgs[i], imgs[j], imgs[k]))
+    return triplets
+
+
+
 def make_pairs(imgs, scene_graph='complete', prefilter=None, symmetrize=True):
     pairs = []
     if scene_graph == 'complete':  # complete graph

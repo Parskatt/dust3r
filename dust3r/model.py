@@ -132,55 +132,55 @@ class AsymmetricCroCo3DStereo (
         x = self.enc_norm(x)
         return x, pos, None
 
-    def _encode_image_pairs(self, img1, img2, true_shape1, true_shape2):
-        if img1.shape[-2:] == img2.shape[-2:]:
-            out, pos, _ = self._encode_image(torch.cat((img1, img2), dim=0),
-                                             torch.cat((true_shape1, true_shape2), dim=0))
-            out, out2 = out.chunk(2, dim=0)
-            pos, pos2 = pos.chunk(2, dim=0)
+    def _encode_image_pairs(self, img_ref, imgs_source, true_shape_ref, true_shapes_source):
+        if img_ref.shape[-2:] == imgs_source[0].shape[-2:]:
+            out, pos, _ = self._encode_image(torch.cat((img_ref, *imgs_source), dim=0),
+                                             torch.cat((true_shape_ref, *true_shapes_source), dim=0))
+            out_ref, outs_source = out[0], out[1:]
+            pos_ref, pos_source = pos[0], pos[1:]
         else:
-            out, pos, _ = self._encode_image(img1, true_shape1)
-            out2, pos2, _ = self._encode_image(img2, true_shape2)
-        return out, out2, pos, pos2
+            out_ref, pos_ref, _ = self._encode_image(img_ref, true_shape_ref)
+            outs_source, pos_source = [], []
+            for img, true_shape in zip(imgs_source, true_shapes_source):
+                out, pos, _ = self._encode_image(img, true_shape)
+                outs_source.append(out)
+                pos_source.append(pos)
 
-    def _encode_symmetrized(self, view1, view2):
-        img1 = view1['img']
-        img2 = view2['img']
-        B = img1.shape[0]
+        return out_ref, outs_source, pos_ref, pos_source
+
+    def _encode_symmetrized(self, view_ref: dict[str,torch.Tensor], views_source: list[dict[str, torch.Tensor]]):
+        if not isinstance(views_source, (tuple, list)):
+            views_source = [views_source]
+        img_ref = view_ref['img']
+        imgs_source = [view['img'] for view in views_source]
+        B = img_ref.shape[0]
         # Recover true_shape when available, otherwise assume that the img shape is the true one
-        shape1 = view1.get('true_shape', torch.tensor(img1.shape[-2:])[None].repeat(B, 1))
-        shape2 = view2.get('true_shape', torch.tensor(img2.shape[-2:])[None].repeat(B, 1))
+        shape_ref = view_ref.get('true_shape', torch.tensor(img_ref.shape[-2:])[None].repeat(B, 1))
+        shapes_source = [views_source[i].get('true_shape', torch.tensor(imgs_source[i].shape[-2:])[None].repeat(B, 1)) for i in range(len(imgs_source))]
         # warning! maybe the images have different portrait/landscape orientations
+        feat_ref, feats_source, pos_ref, pos_source = self._encode_image_pairs(img_ref, imgs_source, shape_ref, shapes_source)
 
-        if is_symmetrized(view1, view2):
-            # computing half of forward pass!'
-            feat1, feat2, pos1, pos2 = self._encode_image_pairs(img1[::2], img2[::2], shape1[::2], shape2[::2])
-            feat1, feat2 = interleave(feat1, feat2)
-            pos1, pos2 = interleave(pos1, pos2)
-        else:
-            feat1, feat2, pos1, pos2 = self._encode_image_pairs(img1, img2, shape1, shape2)
+        return (shape_ref, shapes_source), (feat_ref, feats_source), (pos_ref, pos_source)
 
-        return (shape1, shape2), (feat1, feat2), (pos1, pos2)
-
-    def _decoder(self, f1, pos1, f2, pos2):
-        final_output = [(f1, f2)]  # before projection
+    def _decoder(self, f_ref, pos_ref, fs_source, pos_source):
+        final_output = [(f_ref, fs_source)]  # before projection
 
         # project to decoder dim
-        f1 = self.decoder_embed(f1)
-        f2 = self.decoder_embed(f2)
+        f_ref = self.decoder_embed(f_ref)
+        fs_source = [self.decoder_embed(f_source) for f_source in fs_source]
 
-        final_output.append((f1, f2))
-        for blk1, blk2 in zip(self.dec_blocks, self.dec_blocks2):
+        final_output.append((f_ref, fs_source))
+        for blk_ref, blk_source in zip(self.dec_blocks, self.dec_blocks2):
             # img1 side
-            f1, _ = blk1(*final_output[-1][::+1], pos1, pos2)
+            f_ref, _ = blk_ref(*final_output[-1][::+1], pos_ref, pos_source)
             # img2 side
-            f2, _ = blk2(*final_output[-1][::-1], pos2, pos1)
+            fs_source, _ = blk_source(*final_output[-1][::-1], pos_source, pos_ref)
             # store the result
-            final_output.append((f1, f2))
+            final_output.append((f_ref, fs_source))
 
         # normalize last output
         del final_output[1]  # duplicate with final_output[0]
-        final_output[-1] = tuple(map(self.dec_norm, final_output[-1]))
+        final_output[-1] = (self.dec_norm(f_ref), [self.dec_norm(f_source) for f_source in fs_source])
         return zip(*final_output)
 
     def _downstream_head(self, head_num, decout, img_shape):
@@ -189,16 +189,17 @@ class AsymmetricCroCo3DStereo (
         head = getattr(self, f'head{head_num}')
         return head(decout, img_shape)
 
-    def forward(self, view1, view2):
+    def forward(self, view_ref, views_source: torch.Tensor | list[torch.Tensor]):
         # encode the two images --> B,S,D
-        (shape1, shape2), (feat1, feat2), (pos1, pos2) = self._encode_symmetrized(view1, view2)
+        (shape_ref, shapes_source), (feat_ref, feats_source), (pos_ref, pos_source) = self._encode_symmetrized(view_ref, views_source)
 
         # combine all ref images into object-centric representation
-        dec1, dec2 = self._decoder(feat1, pos1, feat2, pos2)
+        dec_ref, decs_source = self._decoder(feat_ref, pos_ref, feats_source, pos_source)
 
         with torch.cuda.amp.autocast(enabled=False):
-            res1 = self._downstream_head(1, [tok.float() for tok in dec1], shape1)
-            res2 = self._downstream_head(2, [tok.float() for tok in dec2], shape2)
+            res_ref = self._downstream_head(1, [tok.float() for tok in dec_ref], shape_ref)
+            ress_source = [self._downstream_head(2, [tok.float() for tok in dec_source], shape_source) for dec_source, shape_source in zip(decs_source, shapes_source)]
 
-        res2['pts3d_in_other_view'] = res2.pop('pts3d')  # predict view2's pts3d in view1's frame
-        return res1, res2
+        for res_source in ress_source:
+            res_source['pts3d_in_other_view'] = res_source.pop('pts3d')  # predict view2's pts3d in view1's frame
+        return res_ref, ress_source

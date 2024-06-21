@@ -28,24 +28,23 @@ def make_batch_symmetric(batch):
     view1, view2 = (_interleave_imgs(view1, view2), _interleave_imgs(view2, view1))
     return view1, view2
 
-
-def loss_of_one_batch(batch, model, criterion, device, symmetrize_batch=False, use_amp=False, ret=None):
-    view1, view2 = batch
-    for view in batch:
+def views_to_device(views: list[dict[str, torch.Tensor]], device):
+    for view in views:
         for name in 'img pts3d valid_mask camera_pose camera_intrinsics F_matrix corres'.split():  # pseudo_focal
             if name not in view:
                 continue
             view[name] = view[name].to(device, non_blocking=True)
+    return views
 
-    if symmetrize_batch:
-        view1, view2 = make_batch_symmetric(batch)
-
+def loss_of_one_batch(batch, model, criterion, device, symmetrize_batch=False, use_amp=False, ret=None):
+    batch = views_to_device(batch, device = device)
+    view_ref, views_source = batch[0], batch[1:]
     with torch.cuda.amp.autocast(enabled=bool(use_amp)):
-        pred1, pred2 = model(view1, view2)
+        pred_ref, preds_source = model(view_ref, views_source)
 
         # loss is supposed to be symmetric
         with torch.cuda.amp.autocast(enabled=False):
-            loss = criterion(view1, view2, pred1, pred2) if criterion is not None else None
+            loss = criterion(view_ref, views_source, pred_ref, preds_source) if criterion is not None else None
 
     result = dict(view1=view1, view2=view2, pred1=pred1, pred2=pred2, loss=loss)
     return result[ret] if ret else result
@@ -58,7 +57,7 @@ def inference(pairs, model, device, batch_size=8, verbose=True):
     result = []
 
     # first, check if all images have the same size
-    multiple_shapes = not (check_if_same_size(pairs))
+    multiple_shapes = True#not (check_if_same_size(pairs))
     if multiple_shapes:  # force bs=1
         batch_size = 1
 
