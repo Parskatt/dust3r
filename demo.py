@@ -19,7 +19,7 @@ from scipy.spatial.transform import Rotation
 
 from dust3r.inference import inference
 from dust3r.model import AsymmetricCroCo3DStereo
-from dust3r.image_pairs import make_pairs, make_triplets
+from dust3r.image_pairs import make_cliques
 from dust3r.utils.image import load_images, rgb
 from dust3r.utils.device import to_numpy
 from dust3r.viz import add_scene_cam, CAM_COLORS, OPENGL, pts3d_to_trimesh, cat_meshes
@@ -140,10 +140,10 @@ def get_reconstructed_scene(outdir, model, device, silent, image_size, filelist,
     elif scenegraph_type == "oneref":
         scenegraph_type = scenegraph_type + "-" + str(refid)
 
-    triplets = make_triplets(imgs, scene_graph=scenegraph_type, prefilter=None, symmetrize=True)
-    output = inference(triplets, model, device, batch_size=batch_size, verbose=not silent)
+    cliques = make_cliques(imgs, scene_graph=scenegraph_type)
+    output = inference(cliques, model, device, batch_size=batch_size, verbose=not silent)
 
-    mode = GlobalAlignerMode.PointCloudOptimizer if len(imgs) > 2 else GlobalAlignerMode.PairViewer
+    mode = GlobalAlignerMode.PointCloudOptimizer if len(imgs) > 3 else GlobalAlignerMode.PairViewer
     scene = global_aligner(output, device=device, mode=mode, verbose=not silent)
     lr = 0.01
 

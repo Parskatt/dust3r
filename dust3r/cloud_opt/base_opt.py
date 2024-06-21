@@ -41,7 +41,7 @@ class BasePCOptimizer (nn.Module):
         else:
             self._init_from_views(*args, **kwargs)
 
-    def _init_from_views(self, view1, view2, pred1, pred2,
+    def _init_from_views(self, view_ref, views_source, pred_ref, preds_source,
                          dist='l1',
                          conf='log',
                          min_conf_thr=3,
@@ -52,33 +52,34 @@ class BasePCOptimizer (nn.Module):
                          iterationsCount=None,
                          verbose=True):
         super().__init__()
-        if not isinstance(view1['idx'], list):
-            view1['idx'] = view1['idx'].tolist()
-        if not isinstance(view2['idx'], list):
-            view2['idx'] = view2['idx'].tolist()
-        self.edges = [(int(i), int(j)) for i, j in zip(view1['idx'], view2['idx'])]
-        self.is_symmetrized = set(self.edges) == {(j, i) for i, j in self.edges}
+        if not isinstance(view_ref['idx'], list):
+            view_ref['idx'] = view_ref['idx'].tolist()
+        if not isinstance(views_source[0]['idx'], list):
+            for view_source in views_source:
+                view_source['idx'] = view_source['idx'].tolist()
+        self.edges = [(int(i), int(j)) for view_source in views_source for i, j in zip(view_ref['idx'], view_source['idx'])]
+        self.is_symmetrized = True#set(self.edges) == {(j, i) for i, j in self.edges}
         self.dist = ALL_DISTS[dist]
         self.verbose = verbose
 
         self.n_imgs = self._check_edges()
 
         # input data
-        pred1_pts = pred1['pts3d']
-        pred2_pts = pred2['pts3d_in_other_view']
-        self.pred_i = NoGradParamDict({ij: pred1_pts[n] for n, ij in enumerate(self.str_edges)})
-        self.pred_j = NoGradParamDict({ij: pred2_pts[n] for n, ij in enumerate(self.str_edges)})
-        self.imshapes = get_imshapes(self.edges, pred1_pts, pred2_pts)
+        pred_ref_pts = pred_ref['pts3d']
+        preds_source_pts = [pred_source['pts3d_in_other_view'] for pred_source in preds_source]
+        self.pred_i = NoGradParamDict({ij: pred_ref_pts[n] for n, ij in enumerate(self.str_edges)})
+        self.pred_j = NoGradParamDict({ij: preds_source_pts[n] for n, ij in enumerate(self.str_edges)})
+        self.imshapes = get_imshapes(self.edges, pred_ref_pts, preds_source_pts)
 
         # work in log-scale with conf
-        pred1_conf = pred1['conf']
-        pred2_conf = pred2['conf']
+        pred_ref_conf = pred_ref['conf']
+        preds_source_conf = preds_source['conf']
         self.min_conf_thr = min_conf_thr
         self.conf_trf = get_conf_trf(conf)
 
-        self.conf_i = NoGradParamDict({ij: pred1_conf[n] for n, ij in enumerate(self.str_edges)})
-        self.conf_j = NoGradParamDict({ij: pred2_conf[n] for n, ij in enumerate(self.str_edges)})
-        self.im_conf = self._compute_img_conf(pred1_conf, pred2_conf)
+        self.conf_i = NoGradParamDict({ij: pred_ref_conf[n] for n, ij in enumerate(self.str_edges)})
+        self.conf_j = NoGradParamDict({ij: preds_source_conf[n] for n, ij in enumerate(self.str_edges)})
+        self.im_conf = self._compute_img_conf(pred_ref_conf, preds_source_conf)
         for i in range(len(self.im_conf)):
             self.im_conf[i].requires_grad = False
 
@@ -95,13 +96,13 @@ class BasePCOptimizer (nn.Module):
 
         # possibly store images for show_pointcloud
         self.imgs = None
-        if 'img' in view1 and 'img' in view2:
+        if 'img' in view_ref and 'img' in views_source:
             imgs = [torch.zeros((3,)+hw) for hw in self.imshapes]
             for v in range(len(self.edges)):
-                idx = view1['idx'][v]
-                imgs[idx] = view1['img'][v]
-                idx = view2['idx'][v]
-                imgs[idx] = view2['img'][v]
+                idx = view_ref['idx'][v]
+                imgs[idx] = view_ref['img'][v]
+                idx = views_source['idx'][v]
+                imgs[idx] = views_source['img'][v]
             self.imgs = rgb(imgs)
 
     @property

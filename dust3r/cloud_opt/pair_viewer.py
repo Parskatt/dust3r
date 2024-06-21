@@ -23,7 +23,7 @@ class PairViewer (BasePCOptimizer):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        assert self.is_symmetrized and self.n_edges == 2
+        assert self.is_symmetrized and self.n_edges < 4
         self.has_im_poses = True
 
         # compute all parameters directly from raw input

@@ -87,7 +87,7 @@ class BaseStereoViewDataset (EasyDataset):
 
             # encode the image
             width, height = view['img'].size
-            view['true_shape'] = np.int32((height, width))
+            view['true_shape'] = torch.tensor((height, width))
             view['img'] = self.transform(view['img'])
 
             assert 'camera_intrinsics' in view
