@@ -133,10 +133,11 @@ class AsymmetricCroCo3DStereo (
         return x, pos, None
 
     def _encode_image_pairs(self, img_ref, imgs_source, true_shape_ref, true_shapes_source):
+        batch_size = img_ref.shape
         if img_ref.shape[-2:] == imgs_source[0].shape[-2:]:
             out, pos, _ = self._encode_image(torch.cat((img_ref, *imgs_source), dim=0),
                                              torch.cat((true_shape_ref, *true_shapes_source), dim=0))
-            out_ref, outs_source = out[0], out[1:]
+            out_ref, outs_source = out[:batch_size], [out[batch_size*(k+1):batch_size*(k+2)] for k in range(len(imgs_source))]
             pos_ref, pos_source = pos[0], pos[1:]
         else:
             out_ref, pos_ref, _ = self._encode_image(img_ref, true_shape_ref)

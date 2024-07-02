@@ -190,6 +190,9 @@ def show_raw_pointcloud_with_cams(imgs, pts3d, mask, focals, cams2world,
 
 
 def add_scene_cam(scene, pose_c2w, edge_color, image=None, focal=None, imsize=None, screen_width=0.03):
+    
+    if isinstance(focal, np.ndarray):
+        focal = focal[0]
 
     if image is not None:
         H, W, THREE = image.shape
@@ -202,12 +205,10 @@ def add_scene_cam(scene, pose_c2w, edge_color, image=None, focal=None, imsize=No
         H = W = focal / 1.1
     else:
         H = W = 1
-
+    
     if focal is None:
         focal = min(H, W) * 1.1  # default value
-    elif isinstance(focal, np.ndarray):
-        focal = focal[0]
-
+    
     # create fake camera
     height = focal * screen_width / H
     width = screen_width * 0.5**0.5

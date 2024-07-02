@@ -30,12 +30,12 @@ def NoGradParamDict(x):
     return nn.ParameterDict(x).requires_grad_(False)
 
 
-def get_imshapes(edges, pred_i, pred_j):
+def get_imshapes(edges, pred_i, pred_j, s_inds):
     n_imgs = max(max(e) for e in edges) + 1
     imshapes = [None] * n_imgs
-    for e, (i, j) in enumerate(edges):
-        shape_i = tuple(pred_i[e].shape[0:2])
-        shape_j = tuple(pred_j[e].shape[0:2])
+    for (i, j) in edges:
+        shape_i = tuple(pred_i[i].shape[0:2])
+        shape_j = tuple(pred_j[i][s_inds[i].index(j)].shape[0:2])
         if imshapes[i]:
             assert imshapes[i] == shape_i, f'incorrect shape for image {i}'
         if imshapes[j]:

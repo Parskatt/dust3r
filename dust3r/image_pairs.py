@@ -8,11 +8,11 @@ import numpy as np
 import torch
 from itertools import combinations
 
-def make_cliques(imgs, scene_graph='complete', clique_size = 3):
+def make_stars(imgs, scene_graph='complete', star_size = 3):
     cliques = []
     all_inds = set(range(len(imgs)))
     for i in range(len(imgs)):
-        combs = combinations(all_inds.difference([i]), clique_size-1)
+        combs = combinations(all_inds.difference([i]), star_size-1)
         for supports in combs:
             cliques.append([imgs[i]] + [imgs[j] for j in supports])
     return cliques

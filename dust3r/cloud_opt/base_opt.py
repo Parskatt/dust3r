@@ -54,22 +54,23 @@ class BasePCOptimizer (nn.Module):
         super().__init__()
         if not isinstance(view_ref['idx'], list):
             view_ref['idx'] = view_ref['idx'].tolist()
-        if not isinstance(views_source[0]['idx'], list):
+        if not isinstance(views_source['idx'], list):
             for view_source in views_source:
                 view_source['idx'] = view_source['idx'].tolist()
-        self.edges = [(int(i), int(j)) for view_source in views_source for i, j in zip(view_ref['idx'], view_source['idx'])]
+        s_inds:list[list[int]] = views_source['idx']
+        self.edges: list[tuple[int, int]] = [(i, k) for i, j in zip(view_ref['idx'], views_source['idx']) for k in j]
         self.is_symmetrized = True#set(self.edges) == {(j, i) for i, j in self.edges}
         self.dist = ALL_DISTS[dist]
         self.verbose = verbose
 
-        self.n_imgs = self._check_edges()
+        self.n_imgs = len(view_ref['idx'])#self._check_edges()
 
         # input data
         pred_ref_pts = pred_ref['pts3d']
-        preds_source_pts = [pred_source['pts3d_in_other_view'] for pred_source in preds_source]
-        self.pred_i = NoGradParamDict({ij: pred_ref_pts[n] for n, ij in enumerate(self.str_edges)})
-        self.pred_j = NoGradParamDict({ij: preds_source_pts[n] for n, ij in enumerate(self.str_edges)})
-        self.imshapes = get_imshapes(self.edges, pred_ref_pts, preds_source_pts)
+        preds_source_pts = preds_source['pts3d_in_other_view']
+        self.pred_i = NoGradParamDict({edge_str(i, j): pred_ref_pts[i] for (i, j) in self.edges})
+        self.pred_j = NoGradParamDict({edge_str(i, j): preds_source_pts[i][s_inds[i].index(j)] for i, j in self.edges})
+        self.imshapes = get_imshapes(self.edges, pred_ref_pts, preds_source_pts, s_inds)
 
         # work in log-scale with conf
         pred_ref_conf = pred_ref['conf']
@@ -77,9 +78,9 @@ class BasePCOptimizer (nn.Module):
         self.min_conf_thr = min_conf_thr
         self.conf_trf = get_conf_trf(conf)
 
-        self.conf_i = NoGradParamDict({ij: pred_ref_conf[n] for n, ij in enumerate(self.str_edges)})
-        self.conf_j = NoGradParamDict({ij: preds_source_conf[n] for n, ij in enumerate(self.str_edges)})
-        self.im_conf = self._compute_img_conf(pred_ref_conf, preds_source_conf)
+        self.conf_i = NoGradParamDict({edge_str(i, j): pred_ref_conf[i] for i,j in self.edges})
+        self.conf_j = NoGradParamDict({edge_str(i, j): preds_source_conf[i][s_inds[i].index(j)] for i,j in self.edges})
+        self.im_conf = self._compute_img_conf(pred_ref_conf, preds_source_conf, s_inds)
         for i in range(len(self.im_conf)):
             self.im_conf[i].requires_grad = False
 
@@ -98,7 +99,7 @@ class BasePCOptimizer (nn.Module):
         self.imgs = None
         if 'img' in view_ref and 'img' in views_source:
             imgs = [torch.zeros((3,)+hw) for hw in self.imshapes]
-            for v in range(len(self.edges)):
+            for v in range(self.n_imgs):
                 idx = view_ref['idx'][v]
                 imgs[idx] = view_ref['img'][v]
                 idx = views_source['idx'][v]
@@ -134,11 +135,11 @@ class BasePCOptimizer (nn.Module):
         return len(indices)
 
     @torch.no_grad()
-    def _compute_img_conf(self, pred1_conf, pred2_conf):
+    def _compute_img_conf(self, pred1_conf, pred2_conf, s_inds: list[list[int]]):
         im_conf = nn.ParameterList([torch.zeros(hw, device=self.device) for hw in self.imshapes])
-        for e, (i, j) in enumerate(self.edges):
-            im_conf[i] = torch.maximum(im_conf[i], pred1_conf[e])
-            im_conf[j] = torch.maximum(im_conf[j], pred2_conf[e])
+        for (i, j) in self.edges:
+            im_conf[i] = torch.maximum(im_conf[i], pred1_conf[i])
+            im_conf[j] = torch.maximum(im_conf[j], pred2_conf[i][s_inds[i].index(j)])
         return im_conf
 
     def get_adaptors(self):
